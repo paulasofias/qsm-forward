@@ -13,6 +13,7 @@ You may also cite the repository https://github.com/astewartau/qsm-forward.
 
 from dipy.denoise.gibbs import gibbs_removal
 from nilearn.image import resample_img
+from scipy.ndimage import median_filter
 
 import json
 import os
@@ -255,7 +256,7 @@ def adjust_affine_for_B0_direction(affine, B0_dir):
     rotation_matrix = np.linalg.inv(rotation_matrix_from_vectors([0, 0, 1], B0_dir_normalized))
     return affine.dot(np.vstack([np.column_stack([rotation_matrix, [0, 0, 0]]), [0, 0, 0, 1]]))
 
-def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_dir, save_chi=True, save_mask=True, save_segmentation=True, save_field=False, save_shimmed_field=False, save_shimmed_offset_field=False):
+def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_dir, save_chi=True, save_mask=True, save_segmentation=True, save_field=False, save_shimmed_field=False, save_shimmed_offset_field=False, save_rmaps = True):
     """
     Simulate T2*-weighted magnitude and phase images and save the outputs in the BIDS-compliant format.
 
@@ -283,6 +284,8 @@ def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_d
         Whether to save the cropped and shimmed field map to the BIDS directory. Default is False.
     save_shimmed_offset_field : bool
         Whether to save the cropped, shimmed and offset field map to the BIDS directory. Default is False.
+    save_rmaps : bool
+        Whether to save R2, R2star and R2prime to the BIDS directory. Default is True.
 
     Returns
     -------
@@ -318,6 +321,23 @@ def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_d
     # adjust affine for B0 direction
     affine = adjust_affine_for_B0_direction(tissue_params.nii_affine.copy(), recon_params.B0_dir)
     tissue_params.set_affine(affine)
+
+    # chimap separation
+    print("Separating chi...")
+    chipos, chineg = generate_separate_chimaps(tissue_params.chi, tissue_params.seg)
+    if save_chi: 
+        nib.save(resize(chipos, recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_Chimap_pos.nii"))
+        nib.save(resize(chineg, recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_Chimap_neg.nii"))
+    
+    # R2 map generation
+    print("Generating R2map...")
+    R2prime = generate_r2prime_map(chipos.get_fdata(), chineg.get_fdata())
+    R2, R2star_denoised = generate_r2_map(R2prime, tissue_params.R2star.get_fdata())
+    if save_rmaps:
+        nib.save(resize(nib.Nifti1Image(dataobj=np.array(R2prime, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_R2prime.nii"))
+        nib.save(resize(nib.Nifti1Image(dataobj=np.array(R2, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_R2.nii"))
+        nib.save(resize(nib.Nifti1Image(dataobj=np.array(R2star_denoised, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_R2star_denoised.nii"))
+
 
     # image-space resizing
     print("Image-space resizing of chi...")
@@ -356,7 +376,7 @@ def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_d
         print(f"Computing MR signal for echo {i+1}...")
         recon_name_i = f"{recon_name}_echo-{i+1}" if multiecho else recon_name
 
-        sigHR = generate_signal(
+        sigHR = generate_gre_signal(
             field=field,
             B0=recon_params.B0,
             TR=recon_params.TR,
@@ -579,7 +599,7 @@ def generate_shimmed_field(field, mask, order=2):
     
     return FIT3D, Residuals, b
 
-def generate_signal(field, B0=3, TR=1, TE=30e-3, flip_angle=90, phase_offset=0, R1=1, R2star=50, M0=1):
+def generate_gre_signal(field, B0=3, TR=1, TE=30e-3, flip_angle=90, phase_offset=0, R1=1, R2star=50, M0=1):
     """
     Compute the MRI signal based on the given parameters.
 
@@ -1036,4 +1056,133 @@ def simulate_susceptibility_sources(
 
     return temp_sources
 
+
+def generate_r2prime_map(chipos, chineg):
+    """
+    Generate R2' map.
+
+    This function generates an R2' map based on positive and negative suscpetibility maps.
+
+    Parameters
+    ----------
+    chipos : numpy.ndarray
+        3D array of positive suscpetibility map.
+    chineg : numpy.ndarray
+        3D array of negative suscpetibility map.
+
+    Returns
+    -------
+    R2prime : nnumpy.ndarray
+        3D array of the prelaxation rate reflecting reversible dephasing.
+
+    """
+    relaxometric_constant = 137
+    R2prime = relaxometric_constant * np.abs(chipos) + relaxometric_constant * np.abs(chineg)
+
+    return R2prime
+
+
+
+
+def generate_r2_map(R2prime, R2star):
+    """
+    Generate R2 map.
+
+    This function generates an R2 map from R2star and R2prime.
+
+    Parameters
+    ----------
+    R2prime : numpy.ndarray
+        3D array of the relaxation rate reflecting reversible dephasing.
+    R2star : numpy.ndarray
+        3D array of the effective transverse relaxation rate.
+
+    Returns
+    -------
+    R2 : numpy.ndarray
+        3D array of true transverse relaxation rate.
+    R2star_denoised : numpy.ndarray
+        denoised image of the effective transverse relaxation rate.
+
+    """
+    R2star_denoised = median_filter(R2star, size=7)
+    R2 = R2star_denoised - R2prime
+
+    return R2, R2star_denoised
+
+
+
+def generate_separate_chimaps(chi_nii, seg_nii):
+    """
+    Generate positive and negative chimaps.
+
+    This function generates ground truth positive (chipos) and negative chimaps (chineg) from a total chimap (chitot) where chipos + chineg = chitot.
+
+    Parameters
+    ----------
+    chi_nii : nibabel.nifti1.Nifti1Image
+        3D array of the total chimap.
+    seg_nii : nibabel.nifti1.Nifti1Image
+        3D array of the segmentation.
+
+    Returns
+    -------
+    chipos_nii : nibabel.nifti1.Nifti1Image
+        Nifti image of the positive chimap.
+    chineg_nii: nibabel.nifti1.Nifti1Image
+        Nifti image of the negative chimap.
+
+    """
+    # initialize positive and negative chimap
+    chimap = chi_nii.get_fdata()
+    seg = seg_nii.get_fdata()
+
+    chipos = np.zeros_like(chimap)
+    chineg = np.zeros_like(chimap)
+
+    # load json file with chimap fractions
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    json_path = os.path.normpath(os.path.join(current_dir, '..', 'label.json'))
+    with open(json_path, 'r') as f:
+        label_data = json.load(f)
+    
+    # split chimap into positive and negative part
+    for entry in label_data:
+        label = entry['voxel_value']
+        pos_frac = entry['chi_pos']
+        neg_frac = entry['chi_neg']
+
+        mask = seg == label
+        pos_mask = mask & (chimap*mask > 0)
+        neg_mask = mask & (chimap*mask < 0)
+
+        if neg_frac < pos_frac:
+            abs_sum = chimap[pos_mask] / (pos_frac - neg_frac)
+            chipos[pos_mask] = pos_frac * abs_sum
+            chineg[pos_mask] = -neg_frac * abs_sum
+            abs_sum = chimap[neg_mask] / (neg_frac - pos_frac)
+            chipos[neg_mask] = neg_frac * abs_sum
+            chineg[neg_mask] = -pos_frac * abs_sum
+
+        if neg_frac > pos_frac:
+            abs_sum = chimap[pos_mask] / (neg_frac - pos_frac)
+            chipos[pos_mask] = neg_frac * abs_sum
+            chineg[pos_mask] = -pos_frac * abs_sum
+            abs_sum = chimap[neg_mask] / (pos_frac - neg_frac)
+            chipos[neg_mask] = pos_frac * abs_sum
+            chineg[neg_mask] = -neg_frac * abs_sum
+    
+    assert np.allclose(chipos + chineg, chimap)
+    
+    chipos_nii = nib.Nifti1Image(chipos, chi_nii.affine, chi_nii.header)
+    chineg_nii = nib.Nifti1Image(chineg, chi_nii.affine, chi_nii.header)
+
+    return chipos_nii, chineg_nii
+
+
+
+
+
+
+# def generate_se_signal():
 

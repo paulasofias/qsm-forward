@@ -1,0 +1,114 @@
+{
+    "1": {
+        "tissue": "Caudate",
+        "fractions": [
+            0.2,
+            0.8
+        ]
+    },
+    "2": {
+        "tissue": "Globus Pallidus",
+        "fractions": [
+            0.1,
+            0.9
+        ]
+    },
+    "3": {
+        "tissue": "Putamen",
+        "fractions": [
+            0.15,
+            0.85
+        ]
+    },
+    "4": {
+        "tissue": "Red nucleus",
+        "fractions": [
+            0.4,
+            0.6
+        ]
+    },
+    "5": {
+        "tissue": "Dentate nucleus",
+        "fractions": [
+            0.45,
+            0.55
+        ]
+    },
+    "6": {
+        "tissue": "Substantia nigra",
+        "fractions": [
+            0.3,
+            0.7
+        ]
+    },
+    "7": {
+        "tissue": "Thalamus",
+        "fractions": [
+            0.35,
+            0.65
+        ]
+    },
+    "8": {
+        "tissue": "White matter",
+        "fractions": [
+            0.99,
+            0.01
+        ]
+    },
+    "9": {
+        "tissue": "Gray matter",
+        "fractions": [
+            0.1,
+            0.9
+        ]
+    },
+    "10": {
+        "tissue": "CSF",
+        "fractions": [
+            0.009,
+            0.991
+        ]
+    },
+    "11": {
+        "tissue": "Blood",
+        "fractions": [
+            0.02,
+            0.98
+        ]
+    },
+    "12": {
+        "tissue": "Fat",
+        "fractions": [
+            0.1,
+            0.9
+        ]
+    },
+    "13": {
+        "tissue": "Bone",
+        "fractions": [
+            0.8,
+            0.2
+        ]
+    },
+    "14": {
+        "tissue": "Air",
+        "fractions": [
+            0.002,
+            0.998
+        ]
+    },
+    "15": {
+        "tissue": "Muscle",
+        "fractions": [
+            0.1,
+            0.9
+        ]
+    },
+    "16": {
+        "tissue": "Calcification",
+        "fractions": [
+            0.8,
+            0.2
+        ]
+    }
+}

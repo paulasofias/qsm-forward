@@ -177,12 +177,6 @@ class ReconParams:
         Magnetic field strength (in Tesla).
     B0_dir : np.array
         B0 field direction.
-    phase_offset : int
-        Phase offset (in radians).
-    generate_phase_offset : bool
-        Boolean to control phase offset generation.
-    generate_shim_field : bool
-        Boolean to control shim field generation.
     voxel_size : np.array
         Voxel size (in mm).
     peak_snr : float
@@ -191,8 +185,6 @@ class ReconParams:
         Random seed to use for noise.
     suffix : string
         The BIDS-compliant suffix that defines the weighting of the images (e.g. T1w, T2starw, PD).
-    save_phase : bool
-        Boolean to control whether phase images are saved.
     """
 
     def __init__(
@@ -206,14 +198,10 @@ class ReconParams:
             flip_angle=15,
             B0=7,
             B0_dir=np.array([0, 0, 1]),
-            phase_offset=0,
-            generate_phase_offset=True,
-            generate_shim_field=True,
             voxel_size=np.array([1.0, 1.0, 1.0]),
             peak_snr=np.inf,
             random_seed=None,
             suffix=None,
-            save_phase=True
         ):
         self.subject = subject
         self.session = session
@@ -224,16 +212,59 @@ class ReconParams:
         self.flip_angle = flip_angle
         self.B0 = B0
         self.B0_dir = B0_dir
-        self.phase_offset = phase_offset
-        self.generate_phase_offset = generate_phase_offset
-        self.generate_shim_field = generate_shim_field
         self.voxel_size = voxel_size
         self.peak_snr = peak_snr
         self.random_seed = random_seed
-        self.save_phase = save_phase
         self.suffix = suffix
-        if suffix is None:
-            self.suffix = "MEGRE" if len(TEs) > 1 else "T2starw"            
+       
+
+class SpinEcho(ReconParams):
+    """
+    A subclass of ReconParams representing SpinEcho acquisitions.
+
+    Inherits:
+        ReconParams
+
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.suffix is None:
+            self.suffix = "MESE" if len(self.TEs) > 1 else "T2w"
+
+
+class GradientEcho(ReconParams):
+    """
+    A subclass of ReconParams representing GradientEcho acquisitions.
+
+    Inherits:
+        ReconParams
+
+    Additional Attributes:
+        phase_offset : int
+            Phase offset (in radians).
+        generate_phase_offset : bool
+            Boolean to control phase offset generation.
+        generate_shim_field : bool
+            Boolean to control shim field generation.
+        save_phase : bool
+            Boolean to control whether phase images are saved.
+    """
+    def __init__(
+            self,
+            phase_offset=0,
+            generate_phase_offset=True,
+            generate_shim_field=True,
+            save_phase=True,
+            **kwargs
+            ):
+        super().__init__(**kwargs)
+        self.phase_offset = phase_offset
+        self.generate_phase_offset = generate_phase_offset
+        self.generate_shim_field = generate_shim_field
+        self.save_phase = save_phase
+        if self.suffix is None:
+            self.suffix = "MEGRE" if len(self.TEs) > 1 else "T2starw"
+
 
 def rotation_matrix_from_vectors(vec1, vec2):
     """ Compute the rotation matrix that aligns vec1 to vec2 """
@@ -285,7 +316,7 @@ def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_d
     save_shimmed_offset_field : bool
         Whether to save the cropped, shimmed and offset field map to the BIDS directory. Default is False.
     save_rmaps : bool
-        Whether to save R2, R2star and R2prime to the BIDS directory. Default is True.
+        Whether to save R2, R2star and R2prime map to the BIDS directory. Default is True.
 
     Returns
     -------
@@ -349,44 +380,59 @@ def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_d
     print("Image-space cropping of segmentation...")
     if save_segmentation: nib.save(resize(tissue_params.seg, recon_params.voxel_size, 'nearest'), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_dseg.nii"))
 
-    # calculate field
-    print("Computing field model...")
-    field = generate_field(tissue_params.chi.get_fdata(), voxel_size=tissue_params.voxel_size, B0_dir=recon_params.B0_dir)
-    if save_field:
-        nib.save(resize(nib.Nifti1Image(dataobj=np.array(field, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_fieldmap.nii"))
-        local_field = generate_field(tissue_params.chi.get_fdata() * tissue_params.mask.get_fdata(), voxel_size=tissue_params.voxel_size, B0_dir=recon_params.B0_dir)
-        nib.save(resize(nib.Nifti1Image(dataobj=np.array(local_field, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_fieldmap-local.nii"))
+    if recon_params.suffix == "MEGRE" or recon_params.suffix == "T2starw":
+        print("Simulating GradientEcho Data")
 
-    # simulate shim field
-    if recon_params.generate_shim_field:
-        print("Computing shim fields...")
-        _, field, _ = generate_shimmed_field(field, tissue_params.mask.get_fdata(), order=2)
-        if save_shimmed_field: nib.save(resize(nib.Nifti1Image(dataobj=np.array(field, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_desc-shimmed_fieldmap.nii"))
+        # calculate field
+        print("Computing field model...")
+        field = generate_field(tissue_params.chi.get_fdata(), voxel_size=tissue_params.voxel_size, B0_dir=recon_params.B0_dir)
+        if save_field:
+            nib.save(resize(nib.Nifti1Image(dataobj=np.array(field, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_fieldmap.nii"))
+            local_field = generate_field(tissue_params.chi.get_fdata() * tissue_params.mask.get_fdata(), voxel_size=tissue_params.voxel_size, B0_dir=recon_params.B0_dir)
+            nib.save(resize(nib.Nifti1Image(dataobj=np.array(local_field, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_fieldmap-local.nii"))
 
-    # phase offset
-    phase_offset = recon_params.phase_offset
-    if recon_params.generate_phase_offset:
-        print("Computing phase offset...")
-        phase_offset = recon_params.phase_offset + generate_phase_offset(tissue_params.M0.get_fdata(), tissue_params.mask.get_fdata(), tissue_params.M0.get_fdata().shape)
-        if save_shimmed_offset_field: nib.save(resize(nib.Nifti1Image(dataobj=np.array(field, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_desc-shimmed-offset_fieldmap.nii"))
+        # simulate shim field
+        if recon_params.generate_shim_field:
+            print("Computing shim fields...")
+            _, field, _ = generate_shimmed_field(field, tissue_params.mask.get_fdata(), order=2)
+            if save_shimmed_field: nib.save(resize(nib.Nifti1Image(dataobj=np.array(field, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_desc-shimmed_fieldmap.nii"))
+
+        # phase offset
+        phase_offset = recon_params.phase_offset
+        if recon_params.generate_phase_offset:
+            print("Computing phase offset...")
+            phase_offset = recon_params.phase_offset + generate_phase_offset(tissue_params.M0.get_fdata(), tissue_params.mask.get_fdata(), tissue_params.M0.get_fdata().shape)
+            if save_shimmed_offset_field: nib.save(resize(nib.Nifti1Image(dataobj=np.array(field, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_desc-shimmed-offset_fieldmap.nii"))
+
+    if recon_params.suffix == "MESE" or recon_params.suffix == "T2w":
+        print("Simulating SpinEcho Data")
 
     # signal model
     multiecho = len(recon_params.TEs) > 1
     for i in range(len(recon_params.TEs)):
         print(f"Computing MR signal for echo {i+1}...")
         recon_name_i = f"{recon_name}_echo-{i+1}" if multiecho else recon_name
-
-        sigHR = generate_gre_signal(
-            field=field,
-            B0=recon_params.B0,
-            TR=recon_params.TR,
-            TE=recon_params.TEs[i],
-            flip_angle=recon_params.flip_angle,
-            phase_offset=phase_offset,
-            R1=tissue_params.R1.get_fdata(),
-            R2star=tissue_params.R2star.get_fdata(),
-            M0=tissue_params.M0.get_fdata()
-        )
+        if recon_params.suffix == "MEGRE" or recon_params.suffix == "T2starw":
+            sigHR = generate_gre_signal(
+                field=field,
+                B0=recon_params.B0,
+                TR=recon_params.TR,
+                TE=recon_params.TEs[i],
+                flip_angle=recon_params.flip_angle,
+                phase_offset=phase_offset,
+                R1=tissue_params.R1.get_fdata(),
+                R2star=tissue_params.R2star.get_fdata(),
+                M0=tissue_params.M0.get_fdata()
+            )
+        
+        if recon_params.suffix == "MESE" or recon_params.suffix == "T2w":
+            sigHR = generate_se_signal(
+                TR=recon_params.TR,
+                TE=recon_params.TEs[i],
+                R1=tissue_params.R1.get_fdata(),
+                R2=R2,
+                M0=tissue_params.M0.get_fdata()
+            )
     
         # k-space cropping of sigHR
         print(f"k-space cropping of MR signal for echo {i+1}...")
@@ -403,13 +449,13 @@ def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_d
         del sigHR_cropped
 
         # save nifti images
-        mag_filename = f"{recon_name_i}" + ("_part-mag" if recon_params.save_phase else "") + f"_{recon_params.suffix}"
-        phs_filename = f"{recon_name_i}" + ("_part-phase" if recon_params.save_phase else "") + f"_{recon_params.suffix}"
+        mag_filename = f"{recon_name_i}" + ("_part-mag" if hasattr(recon_params, 'save_phase') and recon_params.save_phase else "") + f"_{recon_params.suffix}"
+        phs_filename = f"{recon_name_i}" + ("_part-phase" if hasattr(recon_params, 'save_phase') and recon_params.save_phase else "") + f"_{recon_params.suffix}"
         description = f"TE={recon_params.TEs[i]}; TR={recon_params.TR}; FlipAngle={recon_params.flip_angle}; B0={recon_params.B0}; B0_dir={recon_params.B0_dir}"
         mag_nii = nib.Nifti1Image(dataobj=np.abs(sigHR_cropped_noisy), affine=chi_downsampled_nii.affine, header=chi_downsampled_nii.header)
         mag_nii.header['descrip'] = description
         nib.save(mag_nii, filename=os.path.join(subject_dir, "anat", f"{mag_filename}.nii"))
-        if recon_params.save_phase:
+        if hasattr(recon_params, 'save_phase') and recon_params.save_phase:
             phs_nii = nib.Nifti1Image(dataobj=np.angle(sigHR_cropped_noisy), affine=chi_downsampled_nii.affine, header=chi_downsampled_nii.header)
             phs_nii.header['descrip'] = description
             nib.save(phs_nii, filename=os.path.join(subject_dir, "anat", f"{phs_filename}.nii"))
@@ -429,8 +475,8 @@ def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_d
             'RepetitionTime': recon_params.TR,
             'FlipAngle': recon_params.flip_angle,
             'B0_dir': recon_params.B0_dir.tolist(),
-            'PhaseOffset': recon_params.generate_phase_offset or phase_offset != 0,
-            'ShimmField': recon_params.generate_shim_field,
+            'PhaseOffset':  recon_params.generate_phase_offset or phase_offset != 0 if hasattr(recon_params, 'PhaseOffset') else None,
+            'ShimmField': recon_params.generate_shim_field if hasattr(recon_params, 'ShimmField') else None,
             'VoxelSize': recon_params.voxel_size.tolist(),
             'PeakSNR': recon_params.peak_snr if recon_params.peak_snr != np.inf else "inf"
         }
@@ -442,7 +488,7 @@ def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_d
 
         with open(os.path.join(subject_dir, "anat", f"{mag_filename}.json"), 'w') as mag_json_file:
             json.dump(json_dict_mag, mag_json_file)
-        if recon_params.save_phase:
+        if hasattr(recon_params, 'save_phase') and recon_params.save_phase:
             with open(os.path.join(subject_dir, "anat", f"{phs_filename}.json"), 'w') as phs_json_file:
                 json.dump(json_dict_phs, phs_json_file)
 
@@ -1107,6 +1153,7 @@ def generate_r2_map(R2prime, R2star):
     """
     R2star_denoised = median_filter(R2star, size=7)
     R2 = R2star_denoised - R2prime
+    R2[R2 < 0] = 0
 
     return R2, R2star_denoised
 
@@ -1182,7 +1229,32 @@ def generate_separate_chimaps(chi_nii, seg_nii):
 
 
 
+def generate_se_signal(TR=1, TE=30e-3, R1=1, R2=50, M0=1):
+    """
+    Compute the MRI signal based on the given parameters.
 
+    Parameters
+    ----------
+    TR : float, optional
+        The repetition time. Default is 1.
+    TE : float, optional
+        The echo time. Default is 30e-3.
+    R1 : float or numpy.ndarray, optional
+        The longitudinal relaxation rate. Can be a single value or a 3D numpy array. Default is 1.
+    R2 : float or numpy.ndarray, optional
+        The real transverse relaxation rate. Can be a single value or a 3D numpy array. Default is 50.
+    M0 : float or numpy.ndarray, optional
+        The equilibrium magnetization. Can be a single value or a 3D numpy array. Default is 1.
 
-# def generate_se_signal():
+    Returns
+    -------
+    numpy.ndarray
+        The computed MRI signal.
+
+    """
+
+    sigHR = M0 * (1 - np.exp(-TR*R1))* np.exp(-TE*R2)
+    sigHR[np.isnan(sigHR)] = 0
+
+    return sigHR
 

@@ -76,8 +76,8 @@
         "r": 89,
         "g": 190,
         "b": 121,
-        "chi_neg": 0.99,
-        "chi_pos": 0.01
+        "chi_neg": 0.85,
+        "chi_pos": 0.15
     },
     {
         "name": "Gray matter",
@@ -160,4 +160,3 @@
         "chi_pos": 0.2
     }
 ]
-

@@ -86,7 +86,8 @@ class TissueParams:
             mask = "masks/BrainMask.nii.gz",
             seg = "masks/SegmentedModel.nii.gz",
             voxel_size = None,
-            apply_mask = False
+            apply_mask = False,
+            sweep = None # delta step of sweep
     ):
         if isinstance(chi, str) and not os.path.exists(os.path.join(root_dir, chi)):
             raise ValueError(f"Path to chi is invalid! ({os.path.join(root_dir, chi)})")
@@ -99,6 +100,7 @@ class TissueParams:
         self._apply_mask = apply_mask
         self._voxel_size = voxel_size
         self._affine = None
+        self.sweep = sweep
 
     def set_affine(self, affine):
         self._affine = affine
@@ -256,7 +258,7 @@ class GradientEcho(ReconParams):
             generate_shim_field=True,
             save_phase=True,
             **kwargs
-            ):
+        ):
         super().__init__(**kwargs)
         self.phase_offset = phase_offset
         self.generate_phase_offset = generate_phase_offset
@@ -264,6 +266,102 @@ class GradientEcho(ReconParams):
         self.save_phase = save_phase
         if self.suffix is None:
             self.suffix = "MEGRE" if len(self.TEs) > 1 else "T2starw"
+
+
+class MSLesionSimulator:
+    """
+    A class used to create MS lesion type variations in positive and negative susceptibility maps.
+
+    Attributes
+    ----------
+    num_lesions : int
+        Number of lesions to be added.
+    radius : float
+        Size of lesions.
+    seed : int
+        Random seed used to define lesion location within white matter.
+    chineg_shift : float
+        Additive change in negative suscpetibility.
+    chipos_shift : float
+        Additive change in positive suscpetibility.
+    """
+    def __init__(
+            self, 
+            num_lesions=4, 
+            radius=7, 
+            seed=32, 
+            chineg_shift=0.08, 
+            chipos_shift=0.08
+        ):
+        self.num_lesions = num_lesions
+        self.radius = radius
+        self.seed = seed
+        self.chineg_shift = chineg_shift
+        self.chipos_shift = chipos_shift
+
+    
+    def create_ms_lesions(self, chipos, chineg, seg):
+        """
+        Add lesions to positive and negative Chimap.
+
+        This function creates lesions reflected in changes in the positive and negative susceptibility map.
+
+        Parameters
+        ----------
+        chipos : nibabel.nifti1.Nifti1Image
+           The positive Chimap.
+        chineg : nibabel.nifti1.Nifti1Image
+            The negative Chimap.
+
+        Returns
+        -------
+        chipos_nii : nibabel.nifti1.Nifti1Image
+           The positive Chimap including lesions.
+        chineg_nii : nibabel.nifti1.Nifti1Image
+            The negative Chimap including lesions.
+        chitot_nii : nibabel.nifti1.Nifti1Image
+            The total Chimap including lesions.
+        lesion_mask_nii : nibabel.nifti1.Nifti1Image
+            The lesion mask.
+
+        """
+        # extract white matter
+        wm_mask = seg == 8
+        rng = np.random.default_rng(self.seed)
+        chipos_img = chipos.get_fdata()
+        chineg_img = chineg.get_fdata()
+
+        # randomly select lesion centers within white matter
+        wm_voxels = np.argwhere(wm_mask)
+        lesion_centers = wm_voxels[rng.choice(len(wm_voxels), size=self.num_lesions, replace=False)]
+
+        lesion_mask = np.zeros_like(seg, dtype=bool)
+
+        # create hypointense chineg and hyperintense chipos lesion
+        X, Y, Z = np.ogrid[:chipos.shape[0], :chipos.shape[1], :chipos.shape[2]]
+        for center in lesion_centers:
+            print(f'center location: {center}')
+            cx, cy, cz = center
+            dist_sq = (X - cx)**2 + (Y - cy)**2 + (Z - cz)**2
+            lesion = dist_sq <= self.radius**2
+
+            
+            lesion = lesion & wm_mask
+            lesion_mask = lesion_mask | lesion
+            chipos_img[lesion] += self.chipos_shift # reduce both by 90%
+            chineg_img[lesion] += self.chineg_shift
+
+        chipos_img[chipos_img < 0] = 0
+        chineg_img[chineg_img > 0] = 0
+        chitot = chipos_img + chineg_img
+
+        chipos_nii = nib.Nifti1Image(dataobj=chipos_img, affine=chipos.affine, header=chipos.header)
+        chineg_nii = nib.Nifti1Image(dataobj=chineg_img, affine=chineg.affine, header=chineg.header)
+        chitot_nii = nib.Nifti1Image(dataobj=chitot, affine=chineg.affine, header=chineg.header)
+        lesion_mask_nii = nib.Nifti1Image(dataobj=lesion_mask, affine=chineg.affine, header=chineg.header)
+
+
+        return chipos_nii, chineg_nii, chitot_nii, lesion_mask_nii
 
 
 def rotation_matrix_from_vectors(vec1, vec2):
@@ -287,7 +385,7 @@ def adjust_affine_for_B0_direction(affine, B0_dir):
     rotation_matrix = np.linalg.inv(rotation_matrix_from_vectors([0, 0, 1], B0_dir_normalized))
     return affine.dot(np.vstack([np.column_stack([rotation_matrix, [0, 0, 0]]), [0, 0, 0, 1]]))
 
-def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_dir, save_chi=True, save_mask=True, save_segmentation=True, save_field=False, save_shimmed_field=False, save_shimmed_offset_field=False, save_rmaps = True):
+def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_dir, lesions = None, save_chi=True, save_mask=True, save_segmentation=True, save_field=False, save_shimmed_field=False, save_shimmed_offset_field=False, save_rmaps = True):
     """
     Simulate T2*-weighted magnitude and phase images and save the outputs in the BIDS-compliant format.
 
@@ -303,6 +401,8 @@ def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_d
         Provides parameters for the simulated reconstruction.
     bids_dir : str
         The directory where the BIDS-formatted outputs will be saved.
+    lesions : bool
+        Whether to simulate MS lesions. Default is False.
     save_chi : bool
         Whether to save the cropped chi map to the BIDS directory. Default is True.
     save_mask : bool
@@ -355,7 +455,16 @@ def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_d
 
     # chimap separation
     print("Separating chi...")
-    chipos, chineg = generate_separate_chimaps(tissue_params.chi, tissue_params.seg)
+    print(tissue_params.sweep)
+    chipos, chineg = generate_separate_chimaps(tissue_params.chi, tissue_params.seg, tissue_params.sweep)
+    if lesions is not None:
+        chipos, chineg, chitot, lesion_mask = lesions.create_ms_lesions(chipos, chineg, tissue_params.seg.get_fdata()) # num_lesions=4, radius=7, seed=32, delta_chineg = 0.015, delta_chipos =10
+        nib.save(resize(lesion_mask, recon_params.voxel_size, 'nearest'), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_lesion_mask.nii"))
+        # tissue_params.chi = chitot
+        print('updated chitot')
+    else:
+        chitot = tissue_params.chi    ############### assign as new attribute?
+
     if save_chi: 
         nib.save(resize(chipos, recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_Chimap_pos.nii"))
         nib.save(resize(chineg, recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_Chimap_neg.nii"))
@@ -372,7 +481,7 @@ def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_d
 
     # image-space resizing
     print("Image-space resizing of chi...")
-    chi_downsampled_nii = resize(tissue_params.chi, recon_params.voxel_size)
+    chi_downsampled_nii = resize(chitot, recon_params.voxel_size)
     if save_chi: nib.save(chi_downsampled_nii, filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_Chimap.nii"))
     print("Image-space cropping of mask...")
     if save_mask:
@@ -385,7 +494,7 @@ def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_d
 
         # calculate field
         print("Computing field model...")
-        field = generate_field(tissue_params.chi.get_fdata(), voxel_size=tissue_params.voxel_size, B0_dir=recon_params.B0_dir)
+        field = generate_field(chitot.get_fdata(), voxel_size=tissue_params.voxel_size, B0_dir=recon_params.B0_dir)
         if save_field:
             nib.save(resize(nib.Nifti1Image(dataobj=np.array(field, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_fieldmap.nii"))
             local_field = generate_field(tissue_params.chi.get_fdata() * tissue_params.mask.get_fdata(), voxel_size=tissue_params.voxel_size, B0_dir=recon_params.B0_dir)
@@ -734,7 +843,9 @@ def resize(nii, voxel_size, interpolation='continuous'):
     original_dtype = nii.get_data_dtype()
 
     original_shape = np.array(nii.header.get_data_shape())
+    print(f'original shape: {original_shape}')
     target_shape = np.array(np.round((np.array(nii.header.get_zooms()) / voxel_size) * original_shape), dtype=int)
+    print(f'target shape: {target_shape}')
 
     if np.array_equal(original_shape, target_shape):
         return nii
@@ -1159,7 +1270,7 @@ def generate_r2_map(R2prime, R2star):
 
 
 
-def generate_separate_chimaps(chi_nii, seg_nii):
+def generate_separate_chimaps(chi_nii, seg_nii, delta=None):
     """
     Generate positive and negative chimaps.
 
@@ -1197,7 +1308,9 @@ def generate_separate_chimaps(chi_nii, seg_nii):
     for entry in label_data:
         label = entry['voxel_value']
         pos_frac = entry['chi_pos']
+        print(f'pos_frac: {pos_frac}')
         neg_frac = entry['chi_neg']
+        print(f'neg fraction: {neg_frac}')
 
         mask = seg == label
         pos_mask = mask & (chimap*mask > 0)
@@ -1219,6 +1332,23 @@ def generate_separate_chimaps(chi_nii, seg_nii):
             chipos[neg_mask] = pos_frac * abs_sum
             chineg[neg_mask] = -neg_frac * abs_sum
     
+
+    # if delta is not None:
+    #     print(f'sweeping value {delta}')
+    #     wm_mask = seg == 8
+    #     wm_chi = chimap * wm_mask
+    #     wm_chi_negvox = wm_chi < 0
+    #     wm_chi_posvox = wm_chi > 0
+
+    #     chineg[wm_chi_negvox] = wm_chi[wm_chi_negvox] - delta
+    #     chipos[wm_chi_negvox] = wm_chi[wm_chi_negvox] - chineg[wm_chi_negvox]
+
+    #     chipos[wm_chi_posvox] = wm_chi[wm_chi_posvox] + delta
+    #     chineg[wm_chi_posvox] = wm_chi[wm_chi_posvox] - chipos[wm_chi_posvox]
+
+
+
+
     assert np.allclose(chipos + chineg, chimap)
     
     chipos_nii = nib.Nifti1Image(chipos, chi_nii.affine, chi_nii.header)
@@ -1257,4 +1387,8 @@ def generate_se_signal(TR=1, TE=30e-3, R1=1, R2=50, M0=1):
     sigHR[np.isnan(sigHR)] = 0
 
     return sigHR
+
+
+
+ 
 

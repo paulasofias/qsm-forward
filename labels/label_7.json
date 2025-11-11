@@ -1,0 +1,162 @@
+[
+    {
+        "name": "Caudate",
+        "label": "1",
+        "voxel_value": 1,
+        "r": 202,
+        "g": 116,
+        "b": 198,
+        "chi_neg": 0.166,
+        "chi_pos": 0.834
+    },
+    {
+        "name": "Globus pallidus",
+        "label": "2",
+        "voxel_value": 2,
+        "r": 145,
+        "g": 167,
+        "b": 62,
+        "chi_neg": 0.068,
+        "chi_pos": 0.932
+    },
+    {
+        "name": "Putamen",
+        "label": "3",
+        "voxel_value": 3,
+        "r": 106,
+        "g": 112,
+        "b": 215,
+        "chi_neg": 0.141,
+        "chi_pos": 0.859
+    },
+    {
+        "name": "Red nucleus",
+        "label": "4",
+        "voxel_value": 4,
+        "r": 205,
+        "g": 156,
+        "b": 46,
+        "chi_neg": 0.437,
+        "chi_pos": 0.563
+    },
+    {
+        "name": "Dentate nucleus",
+        "label": "5",
+        "voxel_value": 5,
+        "r": 92,
+        "g": 55,
+        "b": 136,
+        "chi_neg": 0.455,
+        "chi_pos": 0.545
+    },
+    {
+        "name": "Substantia nigra & subthalamic nucleus",
+        "label": "6",
+        "voxel_value": 6,
+        "r": 125,
+        "g": 186,
+        "b": 94,
+        "chi_neg": 0.319,
+        "chi_pos": 0.681
+    },
+    {
+        "name": "Thalamus",
+        "label": "7",
+        "voxel_value": 7,
+        "r": 178,
+        "g": 69,
+        "b": 124,
+        "chi_neg": 0.372,
+        "chi_pos": 0.628
+    },
+    {
+        "name": "White matter",
+        "label": "8",
+        "voxel_value": 8,
+        "r": 89,
+        "g": 190,
+        "b": 121,
+        "chi_neg": 0.852,
+        "chi_pos": 0.148
+    },
+    {
+        "name": "Gray matter",
+        "label": "9",
+        "voxel_value": 9,
+        "r": 186,
+        "g": 71,
+        "b": 88,
+        "chi_neg": 0.065,
+        "chi_pos": 0.935
+    },
+    {
+        "name": "CSF",
+        "label": "10",
+        "voxel_value": 10,
+        "r": 67,
+        "g": 200,
+        "b": 172,
+        "chi_neg": 0.094,
+        "chi_pos": 0.906
+    },
+    {
+        "name": "Blood",
+        "label": "11",
+        "voxel_value": 11,
+        "r": 191,
+        "g": 70,
+        "b": 58,
+        "chi_neg": 0.02,
+        "chi_pos": 0.98
+    },
+    {
+        "name": "Fat",
+        "label": "12",
+        "voxel_value": 12,
+        "r": 109,
+        "g": 141,
+        "b": 215,
+        "chi_neg": 0.082,
+        "chi_pos": 0.918
+    },
+    {
+        "name": "Bone",
+        "label": "13",
+        "voxel_value": 13,
+        "r": 189,
+        "g": 151,
+        "b": 64,
+        "chi_neg": 0.763,
+        "chi_pos": 0.237
+    },
+    {
+        "name": "Air",
+        "label": "14",
+        "voxel_value": 14,
+        "r": 73,
+        "g": 115,
+        "b": 39,
+        "chi_neg": 0.021,
+        "chi_pos": 0.979
+    },
+    {
+        "name": "Muscle",
+        "label": "15",
+        "voxel_value": 15,
+        "r": 181,
+        "g": 95,
+        "b": 50,
+        "chi_neg": 0.076,
+        "chi_pos": 0.924
+    },
+    {
+        "name": "Calcification",
+        "label": "16",
+        "voxel_value": 16,
+        "r": 170,
+        "g": 140,
+        "b": 72,
+        "chi_neg": 0.79,
+        "chi_pos": 0.21
+    }
+]

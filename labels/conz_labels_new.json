@@ -1,0 +1,92 @@
+[
+    {
+        "name": "Thalamus",
+        "label": "1",
+        "voxel_value": 1,
+        "iron": 4.76
+    },
+    {
+        "name": "White matter",
+        "label": "2",
+        "voxel_value": 2,
+        "iron": 3.2
+    },
+    {
+        "name": "Gray matter",
+        "label": "3",
+        "voxel_value": 3,
+        "iron": 3.87
+    },
+    {
+        "name": "CSF",
+        "label": "4",
+        "voxel_value": 4,
+        "iron": 0.0061
+    },
+    {
+        "name": "ventral DC",
+        "label": "5",
+        "voxel_value": 5,
+        "iron": 3.87
+    },
+    {
+        "name": "Putamen",
+        "label": "6",
+        "voxel_value": 6,
+        "iron": 13.32
+    },
+    {
+        "name": "Globus pallidus",
+        "label": "7",
+        "voxel_value": 7,
+        "iron": 21.3
+    },
+    {
+        "name": "Caudate",
+        "label": "8",
+        "voxel_value": 8,
+        "iron": 9.28
+    },
+    {
+        "name": "Dentate nucleus",
+        "label": "9",
+        "voxel_value": 9,
+        "iron": 10.35
+    },
+    {
+        "name": "Red nucleus",
+        "label": "10",
+        "voxel_value": 10,
+        "iron": 19.48
+    },
+    {
+        "name": "Substantia nigra & subthalamic nucleus",
+        "label": "11",
+        "voxel_value": 11,
+        "iron": 18.46
+    },
+    {
+        "name": "Blood",
+        "label": "12",
+        "voxel_value": 12,
+        "iron": 45.8
+    },
+    {
+        "name": "Muscle",
+        "label": "13",
+        "voxel_value": 13,
+        "iron": 2
+    },
+    {
+        "name": "Bone",
+        "label": "14",
+        "voxel_value": 14,
+        "iron": 0.5
+    },
+    {
+        "name": "Air",
+        "label": "15",
+        "voxel_value": 15,
+        "iron": 0.0
+    }
+]

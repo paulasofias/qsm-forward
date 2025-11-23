@@ -1,0 +1,92 @@
+[
+    {
+        "name": "Thalamus",
+        "label": "1",
+        "voxel_value": 1,
+        "myelin": 0.17224807144925894
+    },
+    {
+        "name": "White matter",
+        "label": "2",
+        "voxel_value": 2,
+        "myelin": 0.1929856132618158
+    },
+    {
+        "name": "Gray matter",
+        "label": "3",
+        "voxel_value": 3,
+        "myelin": 0.09238093903660105
+    },
+    {
+        "name": "CSF",
+        "label": "4",
+        "voxel_value": 4,
+        "myelin": 0.10545935556444415
+    },
+    {
+        "name": "ventral DC",
+        "label": "5",
+        "voxel_value": 5,
+        "myelin": 0.09238093903660105
+    },
+    {
+        "name": "Putamen",
+        "label": "6",
+        "voxel_value": 6,
+        "myelin": 0.16356283612126848
+    },
+    {
+        "name": "Globus pallidus",
+        "label": "7",
+        "voxel_value": 7,
+        "myelin": 0.1247335323152439
+    },
+    {
+        "name": "Caudate",
+        "label": "8",
+        "voxel_value": 8,
+        "myelin": 0.08923387888103658
+    },
+    {
+        "name": "Dentate nucleus",
+        "label": "9",
+        "voxel_value": 9,
+        "myelin": 1.12
+    },
+    {
+        "name": "Red nucleus",
+        "label": "10",
+        "voxel_value": 10,
+        "myelin": 0.5692454997206047
+    },
+    {
+        "name": "Substantia nigra & subthalamic nucleus",
+        "label": "11",
+        "voxel_value": 11,
+        "myelin": 0.5403072674809467
+    },
+    {
+        "name": "Blood",
+        "label": "12",
+        "voxel_value": 12,
+        "myelin": 0.14800068939331132
+    },
+    {
+        "name": "Muscle",
+        "label": "13",
+        "voxel_value": 13,
+        "myelin": 0.05991005004996379
+    },
+    {
+        "name": "Bone",
+        "label": "14",
+        "voxel_value": 14,
+        "myelin": 0.07240746261538465
+    },
+    {
+        "name": "Air",
+        "label": "15",
+        "voxel_value": 15,
+        "myelin": 0.0
+    }
+]

@@ -63,22 +63,30 @@ class TissueParams:
     ----------
     root_dir : str or None
         The path to the root directory containing the tissue parameter files.
-    chi_path : str or ndarray
+    chi : str or ndarray
         The path to the Chi file or a 3D numpy array containing Chi values.
-    M0_path : str or ndarray
+    M0 : str or ndarray
         The path to the M0 file or a 3D numpy array containing M0 values.
-    R1_path : str or ndarray
+    R1 : str or ndarray
         The path to the R1 file or a 3D numpy array containing R1 values.
-    R2star_path : str or ndarray
+    R2star : str or ndarray
         The path to the R2* file or a 3D numpy array containing R2* values.
-    mask_path : str or ndarray
+    mask : str or ndarray
         The path to the brain mask file or a 3D numpy array containing brain mask values.
-    seg_path : str or ndarray
+    seg : str or ndarray
         The path to the segmentation file or a 3D numpy array containing segmentation values.
-    chipos_path: str or ndarray
+    voxel_size : list
+        Voxel size of simulated data
+    apply_mask : bool
+        Whether to mask data or not
+    chipos : str or ndarray
         The path to the Chipos file or a 3D numpy array containing positive Chi values.
-    chineg_path: str or ndarray
+    chineg : str or ndarray
         The path to the Chineg file or a 3D numpy array containing negative Chi values.
+    myelin : str or ndarray
+        The path to the Myelin file or a 3D numpy array containing myelin concentration values.
+    iron : str or ndarray
+        The path to the Iron file or a 3D numpy array containing iron concentration values.
 
     """
 
@@ -98,8 +106,7 @@ class TissueParams:
             myelin = None,
             iron = None
     ):
-        # if isinstance(chi, str) and not os.path.exists(os.path.join(root_dir, chi)):
-        #     raise ValueError(f"Path to chi is invalid! ({os.path.join(root_dir, chi)})")
+
         self._chi = os.path.join(root_dir, chi) if isinstance(chi, str) and os.path.exists(os.path.join(root_dir, chi)) else chi if not isinstance(chi, str) else None
         self._M0 = os.path.join(root_dir, M0) if isinstance(M0, str) and os.path.exists(os.path.join(root_dir, M0)) else M0 if not isinstance(M0, str) else None
         self._R1 = os.path.join(root_dir, R1) if isinstance(R1, str) and os.path.exists(os.path.join(root_dir, R1)) else R1 if not isinstance(R1, str) else None
@@ -111,15 +118,8 @@ class TissueParams:
         self._affine = None
         self._chipos = os.path.join(root_dir, chipos) if isinstance(chipos, str) and os.path.exists(os.path.join(root_dir, chipos)) else chipos if not isinstance(chipos, str) else None
         self._chineg = os.path.join(root_dir, chineg) if isinstance(chineg, str) and os.path.exists(os.path.join(root_dir, chineg)) else chineg if not isinstance(chineg, str) else None
-        
         self._myelin = os.path.join(root_dir, myelin) if isinstance(myelin, str) and os.path.exists(os.path.join(root_dir, myelin)) else myelin if not isinstance(myelin, str) else None
-        self._iron = os.path.join(root_dir, iron) if isinstance(iron, str) and os.path.exists(os.path.join(root_dir, iron)) else chineg if not isinstance(iron, str) else None
-        print(f'getting iron from {os.path.join(root_dir, iron)}')
-        img = nib.load(os.path.join(root_dir, iron))
-
-        # Get voxel size (in mm)
-        print(img.header.get_zooms())
-
+        self._iron = os.path.join(root_dir, iron) if isinstance(iron, str) and os.path.exists(os.path.join(root_dir, iron)) else iron if not isinstance(iron, str) else None
 
     def set_affine(self, affine):
         self._affine = affine
@@ -142,10 +142,10 @@ class TissueParams:
         if isinstance(self._chi, str):
             return self._load(self._chi).header
         header = nib.Nifti1Header()
-        shape = self._load(self._mask).get_fdata().shape
-        header.set_data_shape(shape)
-        header.set_zooms(self._load(self._mask).header.get_zooms())
-
+        if isinstance(self._mask, str):
+            shape = self._load(self._mask).get_fdata().shape
+            header.set_data_shape(shape)
+            header.set_zooms(self._load(self._mask).header.get_zooms())
         return header
     
     @property
@@ -304,6 +304,22 @@ class GradientEcho(ReconParams):
 
 
 class LesionGenerator:
+    """
+    A class to simulate lesions in iron and myelin maps.
+
+    Attributes
+    ----------
+    num_range : tuple[int, int]
+        The range from which a random number of lesions is drawn that will be addded to the image.
+    radius_range : tuple[int, int]
+        The range from which radii of the introduced lesions are drawn.
+    iron_delta_range : tuple[float, float]
+        The range of iron intensity change.
+    myelin_delta_range : tuple[float, float]
+        The range of myelin intensity change.
+    seed : int
+        Random seed used to sample parmaeters.
+    """
     def __init__(
             self, 
             num_range=(1, 15), 
@@ -319,24 +335,23 @@ class LesionGenerator:
         self.seed = seed
     
     def _get_center_lesion(self, seg):
+        # simulate lesions in white matter and dentate nucleus
         rng = np.random.default_rng(self.seed)
-        mask = np.isin(seg, [2, 9])     # simulate lesions in white matter and dentate nucleus
+        mask = np.isin(seg, [2, 9])     
         mask_voxels = np.argwhere(mask)
         self.mask = mask
-
         return tuple(mask_voxels[rng.integers(len(mask_voxels))])
 
-
     def _generate_lesion(self, shape, center, radius):
+        # create spheres
         zz, yy, xx = np.indices(shape)
         zc, yc, xc = center
         sphere = ((xx - xc) ** 2 + (yy - yc) ** 2 + (zz - zc) ** 2) < radius**2
         sphere = sphere & self.mask
-        
         return sphere
 
-    
     def add_lesion(self, iron_map, myelin_map, seg):
+        # add lesions to iron and myelin map
         rng = np.random.default_rng(self.seed)
         num_lesions = rng.integers(*self.num_range)
         shape = iron_map.shape
@@ -351,104 +366,7 @@ class LesionGenerator:
 
             iron_map += lesion_mask * delta_iron
             myelin_map += lesion_mask * delta_myelin
-
         return iron_map, myelin_map, lesion_mask
-
-
-class MSLesionSimulator:
-    """
-    A class used to create MS lesion type variations in positive and negative susceptibility maps.
-
-    Attributes
-    ----------
-    num_lesions : int
-        Number of lesions to be added.
-    radius : float
-        Size of lesions.
-    seed : int
-        Random seed used to define lesion location within white matter.
-    chineg_shift : float
-        Additive change in negative suscpetibility.
-    chipos_shift : float
-        Additive change in positive suscpetibility.
-    """
-    def __init__(
-            self, 
-            num_lesions=4, 
-            radius=7, 
-            seed=32, 
-            chineg_shift=0.08, 
-            chipos_shift=0.08
-        ):
-        self.num_lesions = num_lesions
-        self.radius = radius
-        self.seed = seed
-        self.chineg_shift = chineg_shift
-        self.chipos_shift = chipos_shift
-
-    
-    def create_ms_lesions(self, chipos, chineg, seg):
-        """
-        Add lesions to positive and negative Chimap.
-
-        This function creates lesions reflected in changes in the positive and negative susceptibility map.
-
-        Parameters
-        ----------
-        chipos : nibabel.nifti1.Nifti1Image
-           The positive Chimap.
-        chineg : nibabel.nifti1.Nifti1Image
-            The negative Chimap.
-
-        Returns
-        -------
-        chipos_nii : nibabel.nifti1.Nifti1Image
-           The positive Chimap including lesions.
-        chineg_nii : nibabel.nifti1.Nifti1Image
-            The negative Chimap including lesions.
-        chitot_nii : nibabel.nifti1.Nifti1Image
-            The total Chimap including lesions.
-        lesion_mask_nii : nibabel.nifti1.Nifti1Image
-            The lesion mask.
-
-        """
-        # extract white matter
-        wm_mask = seg == 8
-        rng = np.random.default_rng(self.seed)
-        chipos_img = chipos.get_fdata()
-        chineg_img = chineg.get_fdata()
-
-        # randomly select lesion centers within white matter
-        wm_voxels = np.argwhere(wm_mask)
-        lesion_centers = wm_voxels[rng.choice(len(wm_voxels), size=self.num_lesions, replace=False)]
-
-        lesion_mask = np.zeros_like(seg, dtype=bool)
-
-        # create hypointense chineg and hyperintense chipos lesion
-        X, Y, Z = np.ogrid[:chipos.shape[0], :chipos.shape[1], :chipos.shape[2]]
-        for center in lesion_centers:
-            print(f'center location: {center}')
-            cx, cy, cz = center
-            dist_sq = (X - cx)**2 + (Y - cy)**2 + (Z - cz)**2
-            lesion = dist_sq <= self.radius**2
-
-            
-            lesion = lesion & wm_mask
-            lesion_mask = lesion_mask | lesion
-            chipos_img[lesion] -= self.chipos_shift # reduce both by 90%
-            chineg_img[lesion] += self.chineg_shift
-
-        chipos_img[chipos_img < 0] = 0
-        chineg_img[chineg_img > 0] = 0
-        chitot = chipos_img + chineg_img
-
-        chipos_nii = nib.Nifti1Image(dataobj=chipos_img, affine=chipos.affine, header=chipos.header)
-        chineg_nii = nib.Nifti1Image(dataobj=chineg_img, affine=chineg.affine, header=chineg.header)
-        chitot_nii = nib.Nifti1Image(dataobj=chitot, affine=chineg.affine, header=chineg.header)
-        lesion_mask_nii = nib.Nifti1Image(dataobj=lesion_mask, affine=chineg.affine, header=chineg.header)
-
-
-        return chipos_nii, chineg_nii, chitot_nii, lesion_mask_nii
 
 
 def rotation_matrix_from_vectors(vec1, vec2):
@@ -472,7 +390,7 @@ def adjust_affine_for_B0_direction(affine, B0_dir):
     rotation_matrix = np.linalg.inv(rotation_matrix_from_vectors([0, 0, 1], B0_dir_normalized))
     return affine.dot(np.vstack([np.column_stack([rotation_matrix, [0, 0, 0]]), [0, 0, 0, 1]]))
 
-def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_dir, labelfilename=None, lesions = False, save_chi=True, save_chisep=True, save_mask=True, save_segmentation=True, save_field=True, save_shimmed_field=False, save_shimmed_offset_field=False, save_rmaps = True):
+def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_dir, label_filename=None, lesions = False, save_chi=True, save_mask=True, save_segmentation=True, save_field=True, save_shimmed_field=False, save_shimmed_offset_field=False, save_rmaps = True):
     """
     Simulate T2*-weighted magnitude and phase images and save the outputs in the BIDS-compliant format.
 
@@ -488,6 +406,8 @@ def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_d
         Provides parameters for the simulated reconstruction.
     bids_dir : str
         The directory where the BIDS-formatted outputs will be saved.
+    label_filename : str
+        Directory of the json file containing the chi split ratios
     lesions : bool
         Whether to simulate MS lesions. Default is False.
     save_chi : bool
@@ -536,68 +456,50 @@ def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_d
     # random number generator for noise etc.
     rng = np.random.default_rng(recon_params.random_seed)
 
-    print(f'checking zoom: {tissue_params.iron.header.get_zooms()}')
     # adjust affine for B0 direction
     affine = adjust_affine_for_B0_direction(tissue_params.nii_affine.copy(), recon_params.B0_dir)
-    print(f'checking zoom: {tissue_params.iron.header.get_zooms()}')
-
-    # tissue_params.set_affine(affine)
-    print(f'checking zoom: {tissue_params.iron.header.get_zooms()}')
-
-
-
+    tissue_params.set_affine(affine)
 
     ## check if chimap is provided: if not estimate it based on concentrations
-    print(f'header zooms: {tissue_params.nii_header.get_zooms()}')
     if tissue_params.chi is None:
-        print('estimating chimap based on iron and myelin...')
-        chipos, chineg, chitot, iron_map, myelin_map, lesion_mask, p_iron, p_myelin = estimate_chi(tissue_params, None, None, lesions, simulate= False)
+        print('Estimating chimap based on iron and myelin...')
+        if tissue_params.seg is None:
+            raise ValueError(f"No segmentation map provided!")
+        chipos, chineg, chitot, iron_map, myelin_map, lesion_mask, p_iron, p_myelin = estimate_chi(tissue_params, None, None, lesions)
         chi = nib.Nifti1Image(dataobj=np.array(chitot, dtype=np.float32)* tissue_params.mask.get_fdata(), affine=tissue_params.nii_affine, header=tissue_params.nii_header)
         nib.save(resize(nib.Nifti1Image(dataobj=np.array(iron_map, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_iron_map.nii"))
         nib.save(resize(nib.Nifti1Image(dataobj=np.array(myelin_map, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_myelin_map.nii"))
         if lesion_mask is not None:
             nib.save(resize(nib.Nifti1Image(dataobj=np.array(lesion_mask, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size, 'nearest'), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_mask_lesions.nii"))
-
         with open(os.path.join(subject_dir_deriv, "anat", f"{recon_name}_scaling_factors.txt"), "w") as f:
             f.write(f"iron: {p_iron}\n")
             f.write(f"myelin: {p_myelin}\n")
 
-
     # chimap separation
     elif tissue_params.chipos is None:
         print("Separating chi...")
-        chipos, chineg = generate_separate_chimaps(tissue_params.chi, tissue_params.seg, labelfilename)
+        chipos, chineg = generate_separate_chimaps(tissue_params.chi, tissue_params.seg, label_filename)
         chi = tissue_params.chi
-        # if lesions is not None:
-        #     chipos, chineg, chitot, lesion_mask = lesions.create_ms_lesions(chipos, chineg, tissue_params.seg.get_fdata()) # num_lesions=4, radius=7, seed=32, delta_chineg = 0.015, delta_chipos =10
-        #     nib.save(resize(lesion_mask, recon_params.voxel_size, 'nearest'), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_lesion_mask.nii"))
-        #     # tissue_params.chi = chitot
-        #     print('updated chitot')
-        # else:
-        #     chitot = tissue_params.chi    ############### assign as new attribute?
+    
     else:
         chipos = tissue_params.chipos
         chineg = tissue_params.chineg
         chi = tissue_params.chi
     
-    if save_chisep: 
+    if save_chi: 
         nib.save(resize(nib.Nifti1Image(dataobj=np.array(chipos, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_Chimap_pos.nii")) # * tissue_params.mask.get_fdata()
         nib.save(resize(nib.Nifti1Image(dataobj=np.array(chineg, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_Chimap_neg.nii"))
         nib.save(resize(nib.Nifti1Image(dataobj=np.array(np.abs(chineg), dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_Chimap_neg_abs.nii"))
     
     # R2 map generation
     print("Generating R2map...")
-    R2prime, R2star = generate_r2prime_map(chipos, chineg, tissue_params) # * tissue_params.mask.get_fdata()
+    R2prime, R2star = generate_r2prime_r2star_map(chipos, chineg, tissue_params)
     R2 = generate_r2_map(R2prime, R2star)
-    R2star = R2star # * tissue_params.mask.get_fdata()
-    R2 = R2 # * tissue_params.mask.get_fdata()
-    R2prime = R2prime # * tissue_params.mask.get_fdata()
 
     if save_rmaps:
         nib.save(resize(nib.Nifti1Image(dataobj=np.array(R2prime, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_R2prime.nii"))
         nib.save(resize(nib.Nifti1Image(dataobj=np.array(R2, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_R2.nii"))
         nib.save(resize(nib.Nifti1Image(dataobj=np.array(R2star, dtype=np.float32), affine=tissue_params.nii_affine, header=tissue_params.nii_header), recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_R2star.nii"))
-
 
     # image-space resizing
     print("Image-space resizing of chi...")
@@ -608,7 +510,6 @@ def generate_bids(tissue_params: TissueParams, recon_params: ReconParams, bids_d
         nib.save(resize(tissue_params.mask, recon_params.voxel_size, 'nearest'), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_mask.nii"))
     print("Image-space cropping of segmentation...")
     if save_segmentation: nib.save(resize(tissue_params.seg, recon_params.voxel_size, 'nearest'), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_dseg.nii"))
-
     # save resized R1
     nib.save(resize(tissue_params.R1, recon_params.voxel_size), filename=os.path.join(subject_dir_deriv, "anat", f"{recon_name}_r1.nii"))
 
@@ -1339,11 +1240,11 @@ def simulate_susceptibility_sources(
     return temp_sources
 
 
-def generate_r2prime_map(chipos, chineg, tissue_params):
+def generate_r2prime_r2star_map(chipos, chineg, tissue_params):
     """
-    Generate R2' map.
+    Generate R2' map and R2* map.
 
-    This function generates an R2' map based on positive and negative suscpetibility maps.
+    This function generates an R2' and R2* map based on positive and negative suscpetibility maps.
 
     Parameters
     ----------
@@ -1364,11 +1265,11 @@ def generate_r2prime_map(chipos, chineg, tissue_params):
         print('estimating R2star based on R2prime')
         r2star = 1.91 * R2prime
     else:
-        r2star = tissue_params.R2star.get_fdata()
-
+        if tissue_params.apply_mask:
+            r2star = tissue_params.R2star.get_fdata() * tissue_params.mask.get_fdata()
+        else:
+            r2star = tissue_params.R2star.get_fdata()
     return R2prime, r2star
-
-
 
 
 def generate_r2_map(R2prime, R2star):
@@ -1393,10 +1294,8 @@ def generate_r2_map(R2prime, R2star):
 
     """
     # R2star_denoised = median_filter(R2star, size=7)
-    R2star_denoised = R2star
-    R2 = R2star_denoised.astype(np.float64) - R2prime.astype(np.float64)
+    R2 = R2star.astype(np.float64) - R2prime.astype(np.float64)
     R2[R2 < 0] = 0
-
     return R2
 
 
@@ -1463,31 +1362,9 @@ def generate_separate_chimaps(chi_nii, seg_nii, labelfilename):
             chipos[neg_mask] = pos_frac * abs_sum
             chineg[neg_mask] = -neg_frac * abs_sum
     
-
-    # if delta is not None:
-    #     print(f'sweeping value {delta}')
-    #     wm_mask = seg == 8
-    #     wm_chi = chimap * wm_mask
-    #     wm_chi_negvox = wm_chi < 0
-    #     wm_chi_posvox = wm_chi > 0
-
-    #     chineg[wm_chi_negvox] = wm_chi[wm_chi_negvox] - delta
-    #     chipos[wm_chi_negvox] = wm_chi[wm_chi_negvox] - chineg[wm_chi_negvox]
-
-    #     chipos[wm_chi_posvox] = wm_chi[wm_chi_posvox] + delta
-    #     chineg[wm_chi_posvox] = wm_chi[wm_chi_posvox] - chipos[wm_chi_posvox]
-
-
-
-
     assert np.allclose(chipos + chineg, chimap)
-    
-    chipos_nii = nib.Nifti1Image(chipos, chi_nii.affine, chi_nii.header)
-    chineg_nii = nib.Nifti1Image(chineg, chi_nii.affine, chi_nii.header)
 
     return chipos, chineg
-
-
 
 
 def generate_se_signal(TR=1, TE=30e-3, R1=1, R2=50, M0=1):
@@ -1513,7 +1390,6 @@ def generate_se_signal(TR=1, TE=30e-3, R1=1, R2=50, M0=1):
         The computed MRI signal.
 
     """
-
     sigHR = M0 * (1 - np.exp(-TR*R1))* np.exp(-TE*R2)
     sigHR[np.isnan(sigHR)] = 0
 
@@ -1522,12 +1398,25 @@ def generate_se_signal(TR=1, TE=30e-3, R1=1, R2=50, M0=1):
 
 
 class SimulateSourceMaps:
+    """
+    A class to simulate iron and myelin maps.
+
+    Attributes
+    ----------
+    seg : ndarray
+        Array containing the segmentation mask.
+    labels : list
+        The segmentation label numbers.
+    base_myelin : ndarray
+        Array of the myelin map.
+    base_iron : ndarray
+        Array of the iron map.
+    """
     def __init__(self, seg, base_myelin=None, base_iron=None):
         self.seg =seg
         self.labels = np.unique(seg)
         self.base_myelin = base_myelin 
         self.base_iron = base_iron
-
 
     def _compute_base_myelin(self, r1, mask):
         # assign myelin concentrations based on R1
@@ -1537,7 +1426,6 @@ class SimulateSourceMaps:
         r1_data = r1.get_fdata()*mask
         myelin_map = (r1_data - 0.000223*self.base_iron) / 1.066
         myelin_map[myelin_map < 0] = 0
-
         return myelin_map
     
     def _compute_base_myelin_mwf(self, r1, mask):
@@ -1545,28 +1433,25 @@ class SimulateSourceMaps:
         myelin_map = np.zeros_like(self.seg, dtype=np.float32)
 
         # load iron concentration values
-        with open("/scratch/user/uqpstoll/qsm-source-separation/myelin_conz.json", "r") as f: 
+        with open("../labels/myelin_conz.json", "r") as f: 
             data = json.load(f)
         
         r1_data = r1.get_fdata()*mask
         for region in data:
             label = int(region["label"])
             myelin_conz = region["myelin"]
-
             r1_vals = r1_data[self.seg == int(label)]
             coef = 0.664
             if label < 13 and label != 4:
                 mean_r1 = np.mean(r1_data[self.seg == int(label)])
                 r1_min = mean_r1 - np.std(r1_data[self.seg == int(label)])
                 r1_max = mean_r1 + np.std(r1_data[self.seg == int(label)])
-        
                 # Compute mean only over plausible values
                 plausible_mask = (r1_vals >= r1_min) & (r1_vals <= r1_max)
                 if np.any(plausible_mask):
                     mean_r1 = np.mean(r1_vals[plausible_mask])
                 else:
                     mean_r1 = np.mean(r1_vals) 
-
                 # Compute modulation, but only apply where R2* is within plausible range
                 modulated_conz = np.full_like(r1_vals, myelin_conz, dtype=np.float32)
                 modulated_values = (myelin_conz + coef * (r1_vals[plausible_mask] - mean_r1))
@@ -1577,46 +1462,15 @@ class SimulateSourceMaps:
                 modulated_conz = np.full_like(r1_vals, myelin_conz, dtype=np.float32)
             else:
                 modulated_conz = np.zeros_like(r1_vals)
-
             # Fill into output map
             myelin_map[self.seg == int(label)] = modulated_conz
-        
         return myelin_map
         
-
-
-    def _add_partial_volume_effect(self, modulated_map, sigma = 0.08):
-        labels = np.unique(self.seg)
-        mask_maps = np.zeros((self.seg.shape[0], self.seg.shape[1], self.seg.shape[2], len(labels)))
-        for i, label in enumerate(labels):
-            if label < 13 and label != 4:
-                mask = (self.seg == label)
-                mask_smoothed = gaussian_filter(mask, sigma=sigma)
-                mask_maps[..., i] = mask_smoothed
-            else:
-                 mask_maps[..., i] = mask
-
-    
-        sum_maps = np.sum(mask_maps, axis=-1, keepdims=True)
- 
-        prob = mask_maps / sum_maps
-        identity_3d = np.array([[1, 0, 0, 0],
-                        [0, 1, 0, 0],
-                        [0, 0, 1, 0],
-                        [0, 0, 0, 1]])
-        nib.save(nib.Nifti1Image(prob, affine = identity_3d), "/scratch/user/uqpstoll/prob_maps.nii")
-
-        modulated_map_4d = modulated_map[..., np.newaxis]
-        pv_map = np.sum(mask_maps * modulated_map_4d, axis=-1)
-
-        return pv_map
-    
-
     def _compute_base_iron(self,r2star):
         iron_map = np.zeros_like(self.seg, dtype=np.float32)
 
         # load iron concentration values
-        with open("/scratch/user/uqpstoll/qsm-forward/conz_labels_new.json", "r") as f: 
+        with open("../iron_conz.json", "r") as f: 
             data = json.load(f)
 
         for region in data:
@@ -1624,21 +1478,17 @@ class SimulateSourceMaps:
             iron_conz = region["iron"]
             print(iron_conz)
             coef = 0.0526
-
             r2star_vals = r2star[self.seg == int(label)]
             if label < 13 and label != 4:
-        
                 mean_r2star = np.mean(r2star[self.seg == int(label)])
                 r2_min = mean_r2star - np.std(r2star[self.seg == int(label)])
                 r2_max = mean_r2star + np.std(r2star[self.seg == int(label)])
-        
                 # Compute mean only over plausible values
                 plausible_mask = (r2star_vals >= r2_min) & (r2star_vals <= r2_max)
                 if np.any(plausible_mask):
                     mean_r2star = np.mean(r2star_vals[plausible_mask])
                 else:
                     mean_r2star = np.mean(r2star_vals) 
-
                 # Compute modulation, but only apply where R2* is within plausible range
                 modulated_conz = np.full_like(r2star_vals, iron_conz, dtype=np.float32)
                 modulated_values = (iron_conz + (1 - 0.76) * 0.1 * (1 / coef) * (r2star_vals[plausible_mask] - mean_r2star))
@@ -1651,15 +1501,10 @@ class SimulateSourceMaps:
                 modulated_conz = np.zeros_like(r2star_vals)
 
             # Fill into output map
-            iron_map[self.seg == int(label)] = iron_conz # modulated_conz
-        
-        pv_map = iron_map #self._add_partial_volume_effect(iron_map)
-
-        iron_map = (pv_map * 10) / (1- 0.76)
-
+            iron_map[self.seg == int(label)] = modulated_conz
+        iron_map = (iron_map * 10) / (1- 0.76)
         return iron_map
     
-
     def _compute_stats(self, map_data):
         stats = {}
         for l in self.labels:
@@ -1667,7 +1512,6 @@ class SimulateSourceMaps:
             stats[l] = (voxels.mean(), voxels.std())
         return stats
     
-
     def get_myelin_map(self, r1, mask, smooth_sigma=None):
         if self.base_myelin is None:
             print('computing baseline myelin map')
@@ -1697,84 +1541,51 @@ class SimulateSourceMaps:
         return map_new
 
 
+def estimate_chi(tissue_params, base_myelin=None, base_iron=None, lesion=None):
+    """
+    Simulate iron and myelin map and estimate positive and negative susceptibility maps from them.
 
+    Parameters
+    ----------
+    tissue_params : TissueParams
+        Provides paths to different tissue parameter files or the 3D numpy arrays themselves.
+    base_myelin : bool
+        Whether to sample intensities for the myelin map
+    base_iron : bool
+        Whether to sample intensities for the iron map
+    lesion : bool
+        Whether to include lesions
     
-
-
-
-# def create_iron_map(seg_data, r2star_data):
-#     iron_map = np.zeros_like(seg_data, dtype=np.float32)
-
-#     # load iron concentration values
-#     with open("./conz_labels.json", "r") as f:
-#         data = json.load(f)
-
-#     for region in data:
-#         label = int(region["label"])
-#         iron_conz = region["iron"]
-#         coef = 0.0526
-
-#         r2star_vals = r2star_data[seg_data == int(label)]
-#         if label < 13 and label != 4:
-    
-#             mean_r2star = np.mean(r2star_data[seg_data == int(label)])
-#             r2_min = mean_r2star - np.std(r2star_data[seg_data == int(label)])
-#             r2_max = mean_r2star + np.std(r2star_data[seg_data == int(label)])
-    
-#             # Compute mean only over plausible values
-#             plausible_mask = (r2star_vals >= r2_min) & (r2star_vals <= r2_max)
-#             if np.any(plausible_mask):
-#                 mean_r2star = np.mean(r2star_vals[plausible_mask])
-#             else:
-#                 mean_r2star = np.mean(r2star_vals) 
-
-#             # Compute modulation, but only apply where R2* is within plausible range
-#             modulated_conz = np.full_like(r2star_vals, iron_conz, dtype=np.float32)
-#             modulated_values = (iron_conz + (1 - 0.76) * 0.1 * (1 / coef) * (r2star_vals[plausible_mask] - mean_r2star))
-#             # Replace negative values with iron_conz
-#             modulated_values = np.where(modulated_values < iron_conz, iron_conz, modulated_values)
-#             modulated_conz[plausible_mask] = modulated_values
-#         elif label == 4:
-#             modulated_conz = np.full_like(r2star_vals, iron_conz, dtype=np.float32)
-#         else:
-#             modulated_conz = np.zeros_like(r2star_vals)
-
-#         # Fill into output map
-#         iron_map[seg_data == int(label)] = modulated_conz
-
-#     iron_map = (iron_map * 10) / (1- 0.76)
-
-#     return iron_map
-
-
-
-# def create_myelin_map(mask, iron_map, r1):
-#     ## assign myelin concentrations based on R1
-
-#     r1_data = r1.get_fdata()*mask
-#     myelin_map = (r1_data - 0.000223*iron_map) / 1.066
-#     myelin_map[myelin_map < 0] = 0
-
-#     return myelin_map
-
-
-
-def estimate_chi(tissue_params, base_myelin=None, base_iron=None, lesion=None, simulate=False):
+    Returns
+    -------
+    chipos : numpy.ndarray
+        The positive susceptibility map.
+    chineg : numpy.ndarray
+        The negative susceptibility map.
+    chitot : numpy.ndarray
+        The total susceptibility map.
+    iron_map : numpy.ndarray
+        The simulated iron map
+    myelin_map : numpy.ndarray
+        The simulated myelin map
+    lesion_mask : numpy.ndarray
+        Mask of the lesions added to iron and myelin maps.
+    p_iron : float
+        scaling factor for chipos.
+    p_myelin : float
+        scaling factor for chineg.
+    """
     seg_data = tissue_params.seg.get_fdata()
     simulator = SimulateSourceMaps(seg_data, base_myelin, base_iron)
-    if tissue_params.myelin is None or simulate== True:
+    if tissue_params.myelin is None:
         iron_map = simulator.get_iron_map(tissue_params.R2star.get_fdata(), smooth_sigma=0.59)
         myelin_map = simulator.get_myelin_map(tissue_params.R1, tissue_params.mask.get_fdata(), smooth_sigma=0.59)
     else:
         iron_map = tissue_params.iron.get_fdata()
         myelin_map = tissue_params.myelin.get_fdata()
-        print(f'getting iron: {tissue_params.iron.header.get_zooms()}')
 
-
-    # iron_map = create_iron_map(seg_data, r2star.get_fdata())
-    # myelin_map = create_myelin_map(mask.get_fdata(), iron_map, r1)
+    # add lesions
     lesion_mask = None
-
     if lesion:
         lesion_gen = LesionGenerator()
         iron_map, myelin_map, lesion_mask = lesion_gen.add_lesion(iron_map, myelin_map, seg_data)
@@ -1791,35 +1602,7 @@ def estimate_chi(tissue_params, base_myelin=None, base_iron=None, lesion=None, s
     chineg = tissue_params.mask.get_fdata() * (p_myelin * myelin_map)
     chineg[seg_data == 14] = -2.1
     chitot = chipos + chineg
-
-
-    return chipos, chineg, chitot, iron_map, myelin_map, lesion_mask, p_iron, p_myelin
-
-
-
-def generate_fraction_label(regions, n_maps, outpath):
-
-    for i in range(n_maps):
-        region_list = []
-        for region in regions:
-            chi_neg = np.random.uniform(region["chi_neg_min"], region["chi_neg_max"])
-            chi_pos = 1.0 - chi_neg
-            region_entry = {
-                "name": region["name"],
-                "label": region["label"],
-                "voxel_value": region["voxel_value"],
-                "r": region["r"],
-                "g": region["g"],
-                "b": region["b"],
-                "chi_neg": round(chi_neg, 3),
-                "chi_pos": round(chi_pos, 3)
-            }
-            region_list.append(region_entry)
-
-        with open(os.path.join(outpath, f'label_{i+1}.json'), "w") as f:
-            json.dump(region_list, f, indent=4)
-
-
-
- 
-
+    if tissue_params.apply_mask:
+        return chipos * tissue_params.mask.get_fdata(), chineg * tissue_params.mask.get_fdata(), chitot * tissue_params.mask.get_fdata(), iron_map, myelin_map, lesion_mask, p_iron, p_myelin
+    else:
+        return chipos, chineg, chitot, iron_map, myelin_map, lesion_mask, p_iron, p_myelin
